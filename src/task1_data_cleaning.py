@@ -20,7 +20,6 @@ from sklearn.impute import SimpleImputer, KNNImputer
 from sklearn.experimental import enable_iterative_imputer
 from sklearn.impute import IterativeImputer
 from sklearn.datasets import fetch_openml
-from typing import Tuple, Dict, List
 import warnings
 
 warnings.filterwarnings('ignore')
@@ -44,7 +43,7 @@ class DataQualityAnalyzer:
         self.imputed_datasets = {}
         self.missing_indicators = None
         
-    def assess_data_quality(self) -> Dict:
+    def assess_data_quality(self) -> dict:
         """
         Perform comprehensive data quality assessment.
         
@@ -52,7 +51,20 @@ class DataQualityAnalyzer:
             Dict: Dictionary containing total_rows, total_columns, duplicates, 
                 missing_values, missing_percentage, data_types, and memory_usage
         """
-        pass
+        df = self.data
+        shape = df.shape
+        missing = {col_name: col_data.isna().sum() for col_name, col_data in df.items()}
+        percentage = {col_name: (missing_num / shape[0]) * 100 for col_name, missing_num in missing.items()}
+
+        return {
+            'total_rows': shape[0],
+            'total_columns': shape[1],
+            'duplicates': df.duplicated().sum(),
+            'missing_values': missing,
+            'missing_percentage': percentage,
+            'data_types': df.dtypes.to_dict(),
+            'memory_usage': df.memory_usage(deep=True).sum() / 1024**2 # In MB
+        }
     
     def identify_missing_pattern(self, column: str) -> str:
         """
@@ -64,7 +76,18 @@ class DataQualityAnalyzer:
         Returns:
             str: String indicating likely missing pattern (MCAR, MAR, or MNAR)
         """
-        pass
+        df = self.data
+        missing_percentage = self.assess_data_quality()['missing_percentage']
+
+        if column not in df:
+            return "Column not found"
+        if df[column].notna().all():
+            return "No missing values"
+
+        cutoff = 5
+        return ("Likely MCAR (Missing Completely at Random)"
+                if (max(missing_percentage.values()) - min(missing_percentage.values())) <= cutoff
+                else "Likely MAR (Missing at Random)")
     
     def create_missing_indicators(self) -> pd.DataFrame:
         """
@@ -73,7 +96,13 @@ class DataQualityAnalyzer:
         Returns:
             pd.DataFrame: DataFrame with binary indicators for missing values
         """
-        pass
+        return pd.DataFrame(
+            {
+                col_name + '_missing': col_data.isna().astype(int)
+                for col_name, col_data in self.data.items()
+                if col_data.isna().any()
+            }
+        )
     
     def simple_imputation(self, strategy: str = 'mean') -> pd.DataFrame:
         """
@@ -85,7 +114,13 @@ class DataQualityAnalyzer:
         Returns:
             pd.DataFrame: DataFrame with imputed values
         """
-        pass
+        df = self.data
+        cols = df.select_dtypes('number').columns if strategy != 'most_frequent' else df.columns
+        imputer = SimpleImputer(strategy=strategy)
+        imputed = df.copy()
+        imputed[cols] = imputer.fit_transform(df[cols])
+        self.imputed_datasets["simple_" + strategy] = imputed
+        return imputed
     
     def knn_imputation(self, n_neighbors: int = 5) -> pd.DataFrame:
         """
@@ -97,7 +132,13 @@ class DataQualityAnalyzer:
         Returns:
             pd.DataFrame: DataFrame with KNN imputed values
         """
-        pass
+        df = self.data
+        cols = df.select_dtypes('number').columns
+        imputer = KNNImputer(n_neighbors=n_neighbors)
+        imputed = df.copy()
+        imputed[cols] = imputer.fit_transform(df[cols])
+        self.imputed_datasets['knn'] = imputed
+        return imputed
     
     def iterative_imputation(self, max_iter: int = 10) -> pd.DataFrame:
         """
@@ -109,7 +150,13 @@ class DataQualityAnalyzer:
         Returns:
             pd.DataFrame: DataFrame with iteratively imputed values
         """
-        pass
+        df = self.data
+        cols = df.select_dtypes('number').columns
+        imputer = IterativeImputer(max_iter=max_iter)
+        imputed = df.copy()
+        imputed[cols] = imputer.fit_transform(df[cols])
+        self.imputed_datasets['iterative'] = imputed
+        return imputed
     
     def compare_imputation_methods(self) -> pd.DataFrame:
         """
@@ -121,12 +168,19 @@ class DataQualityAnalyzer:
         comparison = {}
         
         # Original data statistics (excluding missing values)
-        comparison['original'] = self.original_data.describe().loc[['mean', 'std', 'min', 'max']]
+        comparison['original'] = self.original_data.describe(
+            include='number'
+        ).loc[['mean', 'std', 'min', 'max']]
         
         # Statistics for each imputed dataset
-        pass
+        for name, df in self.imputed_datasets.items():
+            comparison[name] = df.describe(
+                include='number'
+            ).loc[['mean', 'std', 'min', 'max']]
+
+        return pd.concat(comparison, axis=1)
     
-    def visualize_missing_data(self, figsize: Tuple[int, int] = (15, 10)):
+    def visualize_missing_data(self, figsize: tuple[int, int] = (15, 10)):
         """
         Create comprehensive visualizations of missing data patterns.
         
@@ -180,7 +234,7 @@ class DataQualityAnalyzer:
         plt.tight_layout()
         return fig
     
-    def visualize_imputation_comparison(self, column: str, figsize: Tuple[int, int] = (15, 10)):
+    def visualize_imputation_comparison(self, column: str, figsize: tuple[int, int] = (15, 10)):
         """
         Visualize distribution comparison for a specific column across imputation methods.
         
@@ -231,7 +285,7 @@ class DataQualityAnalyzer:
         plt.tight_layout()
         return fig
     
-    def visualize_correlation_comparison(self, figsize: Tuple[int, int] = (15, 8)):
+    def visualize_correlation_comparison(self, figsize: tuple[int, int] = (15, 8)):
         """
         Compare correlation matrices before and after imputation.
         
