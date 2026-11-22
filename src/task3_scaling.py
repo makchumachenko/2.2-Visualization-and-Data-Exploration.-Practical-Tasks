@@ -62,6 +62,21 @@ class ScalingAnalyzer:
         self.scaled_datasets = {}
         self.scalers = {}
         
+    def scale_numeric(self, scaler, dataset_name: str) -> pd.DataFrame:
+        df = self.data
+        features = df.drop(columns=self.target_col) if self.target_col else df
+        numeric_cols = features.select_dtypes(include=[np.number]).columns
+        scaled = df.copy()
+
+        if len(numeric_cols.drop(self.target_col, errors='ignore')):
+            scaled[numeric_cols] = scaler.fit_transform(features[numeric_cols])
+            self.scalers[dataset_name] = scaler
+        else:
+            return df
+
+        self.scaled_datasets[dataset_name] = scaled
+        return scaled
+
     def apply_minmax_scaling(self, feature_range: tuple[float, float] = (0, 1)) -> pd.DataFrame:
         """
         Apply Min-Max scaling to rescale features to a fixed range.
@@ -72,19 +87,7 @@ class ScalingAnalyzer:
         Returns:
             pd.DataFrame: DataFrame with features scaled to specified range.
         """
-        df = self.data
-        X = df.drop(columns=self.target_col) if self.target_col else df
-        scaler = MinMaxScaler(feature_range).fit(X)
-        scaled = pd.DataFrame(
-            scaler.transform(X),
-            index=X.index,
-            columns=X.columns
-        )
-        if self.target_col:
-            scaled[self.target_col] = df[self.target_col]
-        self.scalers['minmax'] = scaler
-        self.scaled_datasets['minmax'] = scaled
-        return scaled
+        return self.scale_numeric(MinMaxScaler(feature_range), 'minmax')
     
     def apply_standard_scaling(self) -> pd.DataFrame:
         """
@@ -93,19 +96,7 @@ class ScalingAnalyzer:
         Returns:
             pd.DataFrame: DataFrame with standardized features.
         """
-        df = self.data
-        X = df.drop(columns=self.target_col) if self.target_col else df
-        scaler = StandardScaler().fit(X)
-        scaled = pd.DataFrame(
-            scaler.transform(X),
-            index=X.index,
-            columns=X.columns
-        )
-        if self.target_col:
-            scaled[self.target_col] = df[self.target_col]
-        self.scalers['standard'] = scaler
-        self.scaled_datasets['standard'] = scaled
-        return scaled
+        return self.scale_numeric(StandardScaler(), 'standard')
     
     def apply_robust_scaling(self) -> pd.DataFrame:
         """
@@ -114,19 +105,7 @@ class ScalingAnalyzer:
         Returns:
             pd.DataFrame: DataFrame with robust scaled features.
         """
-        df = self.data
-        X = df.drop(columns=self.target_col) if self.target_col else df
-        scaler = RobustScaler().fit(X)
-        scaled = pd.DataFrame(
-            scaler.transform(X),
-            index=X.index,
-            columns=X.columns
-        )
-        if self.target_col:
-            scaled[self.target_col] = df[self.target_col]
-        self.scalers['robust'] = scaler
-        self.scaled_datasets['robust'] = scaled
-        return scaled
+        return self.scale_numeric(RobustScaler(), 'robust')
     
     def apply_maxabs_scaling(self) -> pd.DataFrame:
         """
@@ -135,19 +114,7 @@ class ScalingAnalyzer:
         Returns:
             pd.DataFrame: DataFrame with maxabs scaled features.
         """
-        df = self.data
-        X = df.drop(columns=self.target_col) if self.target_col else df
-        scaler = MaxAbsScaler().fit(X)
-        scaled = pd.DataFrame(
-            scaler.transform(X),
-            index=X.index,
-            columns=X.columns
-        )
-        if self.target_col:
-            scaled[self.target_col] = df[self.target_col]
-        self.scalers['maxabs'] = scaler
-        self.scaled_datasets['maxabs'] = scaled
-        return scaled
+        return self.scale_numeric(MaxAbsScaler(), 'maxabs')
     
     def apply_power_transform(self, method: str = 'yeo-johnson') -> pd.DataFrame:
         """
@@ -159,19 +126,7 @@ class ScalingAnalyzer:
         Returns:
             pd.DataFrame: DataFrame with power transformed and standardized features.
         """
-        df = self.data
-        X = df.drop(columns=self.target_col) if self.target_col else df
-        scaler = PowerTransformer(method=method).fit(X)
-        scaled = pd.DataFrame(
-            scaler.transform(X),
-            index=X.index,
-            columns=X.columns
-        )
-        if self.target_col:
-            scaled[self.target_col] = df[self.target_col]
-        self.scalers['power'] = scaler
-        self.scaled_datasets['power'] = scaled
-        return scaled
+        return self.scale_numeric(PowerTransformer(method=method), 'power')
     
     def get_scaling_summary(self) -> pd.DataFrame:
         """
@@ -204,9 +159,28 @@ class ScalingAnalyzer:
         Returns:
             dict[str, float]: dictionary containing cv_score and cv_std.
         """
-        pass
+        try:
+            clf = {
+                'linear_regression': LinearRegression(),
+                'knn': KNeighborsClassifier(),
+                'svm': SVC(),
+                'neural_network': MLPClassifier()
+            }[model_type]
+        except KeyError:
+            raise ValueError('Unknown model')
+
+        df = self.original_data if dataset_name == 'original' else self.scaled_datasets.get(dataset_name)
+        if df is None:
+            raise ValueError('Invalid dataset name')
+        if self.target_col is None:
+            raise ValueError('Cannot run models without target')
+        score = cross_val_score(clf, df.drop(columns=self.target_col), df[self.target_col])
+        return {
+            'cv_score': score.mean(),
+            'cv_std': score.std()
+        }
     
-    def compare_model_performance(self, model_types: list[str] = None) -> pd.DataFrame:
+    def compare_model_performance(self, model_types: list[str]| None = None) -> pd.DataFrame:
         """
         Compare performance across different scaling methods and models.
         
@@ -317,17 +291,24 @@ class ScalingAnalyzer:
         for idx, feature in enumerate(numeric_cols[:n_features]):
             ax = axes[idx]
             
-            data_to_plot = [self.original_data[feature].dropna()]
-            labels = ['Original']
+            data_to_plot = []
+            labels = []
+            datasets = [('Original', self.original_data)] + [
+                (method_name.upper(), scaled_df)
+                for method_name, scaled_df in self.scaled_datasets.items()
+            ]
+            for label, dataset in datasets:
+                if feature not in dataset.columns or not pd.api.types.is_numeric_dtype(dataset[feature]):
+                    continue
+                data_to_plot.append(dataset[feature].dropna())
+                labels.append(label)
             
-            for method_name, scaled_df in self.scaled_datasets.items():
-                data_to_plot.append(scaled_df[feature].dropna())
-                labels.append(method_name.upper())
-            
-            bp = ax.boxplot(data_to_plot, labels=labels, patch_artist=True)
+            bp = ax.boxplot(data_to_plot, patch_artist=True)
+            ax.set_xticks(range(1, len(labels) + 1))
+            ax.set_xticklabels(labels)
             
             # Color the boxes
-            colors = ['skyblue'] + ['lightcoral'] * len(self.scaled_datasets)
+            colors = ['skyblue'] + ['lightcoral'] * (len(data_to_plot) - 1)
             for patch, color in zip(bp['boxes'], colors):
                 patch.set_facecolor(color)
             
