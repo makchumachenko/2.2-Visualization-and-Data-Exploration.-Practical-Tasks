@@ -26,7 +26,6 @@ from sklearn.svm import SVC
 from sklearn.neural_network import MLPClassifier
 from sklearn.model_selection import cross_val_score, learning_curve
 from sklearn.datasets import make_classification
-from typing import Tuple, Dict, List
 import warnings
 from mpl_toolkits.mplot3d import Axes3D
 
@@ -45,11 +44,11 @@ class ScalingAnalyzer:
         data (pd.DataFrame): Current working copy of the dataset
         original_data (pd.DataFrame): Original unmodified dataset
         target_col (str): Name of target column (excluded from scaling)
-        scaled_datasets (Dict[str, pd.DataFrame]): Datasets after different scaling methods
-        scalers (Dict[str, object]): Fitted scaler objects for each method
+        scaled_datasets (dict[str, pd.DataFrame]): Datasets after different scaling methods
+        scalers (dict[str, object]): Fitted scaler objects for each method
     """
     
-    def __init__(self, data: pd.DataFrame, target_col: str = None):
+    def __init__(self, data: pd.DataFrame, target_col: str | None = None):
         """
         Initialize the analyzer with a dataset.
         
@@ -63,17 +62,29 @@ class ScalingAnalyzer:
         self.scaled_datasets = {}
         self.scalers = {}
         
-    def apply_minmax_scaling(self, feature_range: Tuple[float, float] = (0, 1)) -> pd.DataFrame:
+    def apply_minmax_scaling(self, feature_range: tuple[float, float] = (0, 1)) -> pd.DataFrame:
         """
         Apply Min-Max scaling to rescale features to a fixed range.
         
         Parameters:
-            feature_range (Tuple[float, float], optional): Desired range of transformed data. Defaults to (0, 1).
+            feature_range (tuple[float, float], optional): Desired range of transformed data. Defaults to (0, 1).
             
         Returns:
             pd.DataFrame: DataFrame with features scaled to specified range.
         """
-        pass
+        df = self.data
+        X = df.drop(columns=self.target_col) if self.target_col else df
+        scaler = MinMaxScaler(feature_range).fit(X)
+        scaled = pd.DataFrame(
+            scaler.transform(X),
+            index=X.index,
+            columns=X.columns
+        )
+        if self.target_col:
+            scaled[self.target_col] = df[self.target_col]
+        self.scalers['minmax'] = scaler
+        self.scaled_datasets['minmax'] = scaled
+        return scaled
     
     def apply_standard_scaling(self) -> pd.DataFrame:
         """
@@ -82,7 +93,19 @@ class ScalingAnalyzer:
         Returns:
             pd.DataFrame: DataFrame with standardized features.
         """
-        pass
+        df = self.data
+        X = df.drop(columns=self.target_col) if self.target_col else df
+        scaler = StandardScaler().fit(X)
+        scaled = pd.DataFrame(
+            scaler.transform(X),
+            index=X.index,
+            columns=X.columns
+        )
+        if self.target_col:
+            scaled[self.target_col] = df[self.target_col]
+        self.scalers['standard'] = scaler
+        self.scaled_datasets['standard'] = scaled
+        return scaled
     
     def apply_robust_scaling(self) -> pd.DataFrame:
         """
@@ -91,7 +114,19 @@ class ScalingAnalyzer:
         Returns:
             pd.DataFrame: DataFrame with robust scaled features.
         """
-        pass
+        df = self.data
+        X = df.drop(columns=self.target_col) if self.target_col else df
+        scaler = RobustScaler().fit(X)
+        scaled = pd.DataFrame(
+            scaler.transform(X),
+            index=X.index,
+            columns=X.columns
+        )
+        if self.target_col:
+            scaled[self.target_col] = df[self.target_col]
+        self.scalers['robust'] = scaler
+        self.scaled_datasets['robust'] = scaled
+        return scaled
     
     def apply_maxabs_scaling(self) -> pd.DataFrame:
         """
@@ -100,7 +135,19 @@ class ScalingAnalyzer:
         Returns:
             pd.DataFrame: DataFrame with maxabs scaled features.
         """
-        pass
+        df = self.data
+        X = df.drop(columns=self.target_col) if self.target_col else df
+        scaler = MaxAbsScaler().fit(X)
+        scaled = pd.DataFrame(
+            scaler.transform(X),
+            index=X.index,
+            columns=X.columns
+        )
+        if self.target_col:
+            scaled[self.target_col] = df[self.target_col]
+        self.scalers['maxabs'] = scaler
+        self.scaled_datasets['maxabs'] = scaled
+        return scaled
     
     def apply_power_transform(self, method: str = 'yeo-johnson') -> pd.DataFrame:
         """
@@ -112,7 +159,19 @@ class ScalingAnalyzer:
         Returns:
             pd.DataFrame: DataFrame with power transformed and standardized features.
         """
-        pass
+        df = self.data
+        X = df.drop(columns=self.target_col) if self.target_col else df
+        scaler = PowerTransformer(method=method).fit(X)
+        scaled = pd.DataFrame(
+            scaler.transform(X),
+            index=X.index,
+            columns=X.columns
+        )
+        if self.target_col:
+            scaled[self.target_col] = df[self.target_col]
+        self.scalers['power'] = scaler
+        self.scaled_datasets['power'] = scaled
+        return scaled
     
     def get_scaling_summary(self) -> pd.DataFrame:
         """
@@ -121,10 +180,20 @@ class ScalingAnalyzer:
         Returns:
             DataFrame with statistics for each scaling method
         """
-        pass
+        dfs = {'original': self.original_data, **self.scaled_datasets}
+        stats = {}
+        statistic_names = ['mean', 'std', 'min', 'max']
+
+        for dataset_name, df in dfs.items():
+            features = df
+            if self.target_col and self.target_col in features.columns:
+                features = features.drop(columns=self.target_col)
+            stats[dataset_name] = features.agg(statistic_names).transpose()
+
+        return pd.concat(stats, axis=1)
     
     def evaluate_model_performance(self, model_type: str = 'linear_regression',
-                                   dataset_name: str = 'original') -> Dict[str, float]:
+                                   dataset_name: str = 'original') -> dict[str, float]:
         """
         Evaluate model performance with different scaling methods.
         
@@ -133,16 +202,16 @@ class ScalingAnalyzer:
             dataset_name (str, optional): Dataset to evaluate ('original' or scaled version name). Defaults to 'original'.
             
         Returns:
-            Dict[str, float]: Dictionary containing cv_score and cv_std.
+            dict[str, float]: dictionary containing cv_score and cv_std.
         """
         pass
     
-    def compare_model_performance(self, model_types: List[str] = None) -> pd.DataFrame:
+    def compare_model_performance(self, model_types: list[str] = None) -> pd.DataFrame:
         """
         Compare performance across different scaling methods and models.
         
         Parameters:
-            model_types (List[str], optional): List of model types to evaluate. Defaults to ['linear_regression', 'knn'].
+            model_types (list[str], optional): list of model types to evaluate. Defaults to ['linear_regression', 'knn'].
             
         Returns:
             pd.DataFrame: Comparison table with model, scaling, score, and std columns.
@@ -165,12 +234,12 @@ class ScalingAnalyzer:
         
         return pd.DataFrame(results)
     
-    def visualize_distributions(self, figsize: Tuple[int, int] = (15, 10)):
+    def visualize_distributions(self, figsize: tuple[int, int] = (15, 10)):
         """
         Compare distributions after different scaling methods using histograms.
         
         Parameters:
-            figsize (Tuple[int, int], optional): Figure size in inches. Defaults to (15, 10).
+            figsize (tuple[int, int], optional): Figure size in inches. Defaults to (15, 10).
         
         Returns:
             matplotlib.figure.Figure: The generated figure object.
@@ -226,7 +295,7 @@ class ScalingAnalyzer:
         plt.tight_layout()
         return fig
     
-    def visualize_boxplots(self, figsize: Tuple[int, int] = (15, 10)):
+    def visualize_boxplots(self, figsize: tuple[int, int] = (15, 10)):
         """
         Show range and spread of scaled features using box plots.
         
@@ -275,7 +344,7 @@ class ScalingAnalyzer:
         plt.tight_layout()
         return fig
     
-    def visualize_correlation_comparison(self, figsize: Tuple[int, int] = (15, 10)):
+    def visualize_correlation_comparison(self, figsize: tuple[int, int] = (15, 10)):
         """
         Visualize correlation structure under different scaling methods.
         
@@ -321,7 +390,7 @@ class ScalingAnalyzer:
         return fig
     
     def visualize_performance_comparison(self, comparison_df: pd.DataFrame,
-                                        figsize: Tuple[int, int] = (12, 6)):
+                                        figsize: tuple[int, int] = (12, 6)):
         """
         Visualize model performance comparison using radar chart.
         
@@ -360,7 +429,7 @@ class ScalingAnalyzer:
         return fig
     
     def visualize_feature_space_2d(self, x_feature: str, y_feature: str,
-                                   figsize: Tuple[int, int] = (15, 5)):
+                                   figsize: tuple[int, int] = (15, 5)):
         """
         Visualize how scaling transforms the 2D feature space.
         
@@ -419,7 +488,7 @@ class ScalingAnalyzer:
         return fig
     
     def visualize_feature_space_3d(self, x_feature: str, y_feature: str, z_feature: str,
-                                   figsize: Tuple[int, int] = (15, 5)):
+                                   figsize: tuple[int, int] = (15, 5)):
         """
         Visualize how scaling transforms the 3D feature space.
         
@@ -473,12 +542,12 @@ class ScalingAnalyzer:
         return fig
 
 
-def create_sample_dataset() -> Tuple[pd.DataFrame, str]:
+def create_sample_dataset() -> tuple[pd.DataFrame, str]:
     """
     Create a sample dataset for scaling demonstration.
     
     Returns:
-        Tuple[pd.DataFrame, str]: Dataset and target column name.
+        tuple[pd.DataFrame, str]: Dataset and target column name.
     """
     np.random.seed(42)
     n_samples = 200
