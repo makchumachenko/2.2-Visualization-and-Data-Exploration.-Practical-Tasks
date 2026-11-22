@@ -18,11 +18,10 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.ensemble import IsolationForest
 from sklearn.neighbors import LocalOutlierFactor
-from sklearn.preprocessing import PowerTransformer
+from sklearn.preprocessing import PowerTransformer, StandardScaler
 from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import cross_val_score
 from scipy import stats
-from typing import Tuple, Dict, List
 import warnings
 
 warnings.filterwarnings('ignore')
@@ -56,7 +55,14 @@ class OutlierAnalyzer:
         Returns:
             pd.DataFrame: Boolean mask indicating outliers
         """
-        pass
+        df = self.data
+        scaled_data = pd.DataFrame(
+            StandardScaler().fit_transform(df),
+            columns=df.columns
+        )
+        mask = (-threshold > scaled_data) | (scaled_data > threshold)
+        self.outlier_masks['zscore'] = mask
+        return mask
     
     def detect_outliers_iqr(self, multiplier: float = 1.5) -> pd.DataFrame:
         """
@@ -68,7 +74,19 @@ class OutlierAnalyzer:
         Returns:
             pd.DataFrame: Boolean mask indicating outliers
         """
-        pass
+        df = self.data
+
+        q1 = df.quantile(0.25)
+        q3 = df.quantile(0.75)
+        iqr = q3 - q1
+
+        lower = q1 - multiplier * iqr
+        upper = q3 + multiplier * iqr
+
+        mask = df.lt(lower) | df.gt(upper)
+
+        self.outlier_masks['iqr'] = mask
+        return mask
     
     def detect_outliers_isolation_forest(self, contamination: float = 0.1, 
                                         random_state: int = 42) -> pd.DataFrame:
@@ -82,7 +100,17 @@ class OutlierAnalyzer:
         Returns:
             pd.DataFrame: Boolean mask indicating outliers
         """
-        pass
+        df = self.data
+        predictions = IsolationForest(
+            contamination=contamination,
+            random_state=random_state
+        ).fit_predict(df)
+        mask = pd.DataFrame(
+            np.tile(predictions[:, None], (1, df.shape[1])),
+            columns=df.columns
+        ) == -1
+        self.outlier_masks['isolation_forest'] = mask
+        return mask
     
     def detect_outliers_lof(self, n_neighbors: int = 20, 
                            contamination: float = 0.1) -> pd.DataFrame:
@@ -96,7 +124,17 @@ class OutlierAnalyzer:
         Returns:
             pd.DataFrame: Boolean mask indicating outliers
         """
-        pass
+        df = self.data
+        predictions = LocalOutlierFactor(
+            n_neighbors=n_neighbors,
+            contamination=contamination
+        ).fit_predict(df)
+        mask = pd.DataFrame(
+            np.tile(predictions[:, None], (1, df.shape[1])),
+            columns=df.columns
+        ) == -1
+        self.outlier_masks['lof'] = mask
+        return mask
     
     def get_outlier_summary(self) -> pd.DataFrame:
         """
@@ -105,7 +143,10 @@ class OutlierAnalyzer:
         Returns:
             DataFrame with outlier counts for each method
         """
-        pass
+        return pd.DataFrame({
+            method: mask.sum()
+            for method, mask in self.outlier_masks.items()
+        })
     
     def remove_outliers(self, method: str = 'iqr') -> pd.DataFrame:
         """
@@ -117,7 +158,12 @@ class OutlierAnalyzer:
         Returns:
             pd.DataFrame: Dataset with outliers removed
         """
-        pass
+        if method not in self.outlier_masks:
+            raise ValueError('No such method in masks')
+        mask = self.outlier_masks[method]
+        removed = mask.loc[~mask.any(axis=1)]
+        self.treated_datasets['removed_' + method] = removed
+        return removed
     
     def cap_outliers(self, method: str = 'iqr', multiplier: float = 1.5) -> pd.DataFrame:
         """
@@ -130,7 +176,18 @@ class OutlierAnalyzer:
         Returns:
             pd.DataFrame: Dataset with capped outliers
         """
-        pass
+        df = self.data
+
+        q1 = df.quantile(0.25)
+        q3 = df.quantile(0.75)
+        iqr = q3 - q1
+
+        lower = q1 - multiplier * iqr
+        upper = q3 + multiplier * iqr
+
+        capped = df.clip(lower, upper, axis=1)
+        self.treated_datasets['capped'] = capped
+        return capped
     
     def transform_outliers_log(self) -> pd.DataFrame:
         """
@@ -139,7 +196,12 @@ class OutlierAnalyzer:
         Returns:
             pd.DataFrame: Dataset with log-transformed values
         """
-        pass
+        df = self.data
+        shift = abs(df.min().min()) + 1
+
+        df_log = np.log(df + shift)
+        self.treated_datasets['log_transform'] = df_log
+        return df_log
     
     def transform_outliers_boxcox(self) -> pd.DataFrame:
         """
@@ -148,10 +210,16 @@ class OutlierAnalyzer:
         Returns:
             pd.DataFrame: Dataset with power-transformed values
         """
-        pass
+        df = self.data
+        scaled_data = pd.DataFrame(
+            PowerTransformer().fit_transform(df),
+            columns=df.columns
+        )
+        self.treated_datasets['boxcox_transform'] = scaled_data
+        return scaled_data
     
     def evaluate_model_performance(self, target_col: str, 
-                                   dataset_name: str = 'original') -> Dict[str, float]:
+                                   dataset_name: str = 'original') -> dict[str, float]:
         """
         Evaluate model performance with and without outliers.
         
@@ -162,9 +230,21 @@ class OutlierAnalyzer:
         Returns:
             Dictionary with performance metrics
         """
-        pass
+        df = self.original_data if dataset_name == 'original' else self.treated_datasets.get(dataset_name)
+        if df is None:
+            raise ValueError('Nonexistent dataset')
+        if target_col not in df:
+            raise ValueError('Nonexistent column')
+        score = cross_val_score(
+            LinearRegression(), df.drop(columns=[target_col]), df[target_col], scoring='r2'
+        )
+        return {
+            'r2_score': score.mean(),
+            'r2_std': score.std(),
+            'mean_cv_score': score.mean()
+        }
     
-    def visualize_outliers_boxplot(self, figsize: Tuple[int, int] = (15, 10)):
+    def visualize_outliers_boxplot(self, figsize: tuple[int, int] = (15, 10)):
         """
         Create box plots showing outliers.
         
@@ -174,11 +254,27 @@ class OutlierAnalyzer:
         Returns:
             matplotlib.figure.Figure: The generated figure object
         """
-        pass
-        
+        numeric_cols = self.data.select_dtypes(include=[np.number]).columns
+        if len(numeric_cols) == 0:
+            print("No numeric columns to visualize")
+            return None
+
+        fig, axes = plt.subplots(
+            ncols=len(numeric_cols),
+            figsize=figsize
+        )
+        axes = np.atleast_1d(axes)
+
+        for ax, col in zip(axes, numeric_cols):
+            ax.boxplot(self.data[col].dropna(), vert=True)
+            ax.set_title(col)
+            ax.set_ylabel(col)
+            ax.grid(axis='y', alpha=0.3)
+
+        plt.tight_layout()
         return fig
     
-    def visualize_outliers_violin(self, figsize: Tuple[int, int] = (15, 10)):
+    def visualize_outliers_violin(self, figsize: tuple[int, int] = (15, 10)):
         """
         Create violin plots showing distribution with outliers.
         
@@ -186,13 +282,28 @@ class OutlierAnalyzer:
             figsize: Figure size for plots
         """
         numeric_cols = self.data.select_dtypes(include=[np.number]).columns[:6]
-        
-        pass
-        
+
+        if len(numeric_cols) == 0:
+            print("No numeric columns to visualize")
+            return None
+
+        fig, axes = plt.subplots(2, 3, figsize=figsize)
+        axes = axes.flatten()
+
+        for ax, col in zip(axes, numeric_cols):
+            sns.violinplot(y=self.data[col].dropna(), ax=ax, inner='quartile', color='skyblue')
+            ax.set_title(col)
+            ax.set_ylabel(col)
+            ax.grid(axis='y', alpha=0.3)
+
+        for ax in axes[len(numeric_cols):]:
+            ax.axis('off')
+
+        plt.tight_layout()
         return fig
     
     def visualize_outliers_scatter(self, x_col: str, y_col: str, 
-                                   figsize: Tuple[int, int] = (15, 5)):
+                                   figsize: tuple[int, int] = (15, 5)):
         """
         Create scatter plots showing outliers detected by different methods.
         
@@ -201,13 +312,40 @@ class OutlierAnalyzer:
             y_col: Column for y-axis
             figsize: Figure size for plots
         """
-        pass
-                                       
+        if x_col not in self.data.columns or y_col not in self.data.columns:
+            print("Column not found")
+            return None
+
+        fig, ax = plt.subplots(figsize=figsize)
+        ax.scatter(self.data[x_col], self.data[y_col],
+                   color='steelblue', alpha=0.7, label='Normal')
+
+        detected = np.zeros(len(self.data), dtype=bool)
+        for mask in self.outlier_masks.values():
+            if x_col in mask.columns and y_col in mask.columns:
+                detected |= mask[[x_col, y_col]].any(axis=1).to_numpy()
+
+        if detected.any():
+            ax.scatter(
+                self.data.loc[detected, x_col],
+                self.data.loc[detected, y_col],
+                color='red',
+                marker='x',
+                s=70,
+                label='Outlier'
+            )
+
+        ax.set_xlabel(x_col)
+        ax.set_ylabel(y_col)
+        ax.set_title(f'{y_col} vs {x_col}')
+        ax.grid(alpha=0.3)
+        ax.legend()
+        plt.tight_layout()
         return fig
     
     def visualize_3d_outliers(self, x_col: str, y_col: str, z_col: str, 
                              method: str = 'isolation_forest',
-                             figsize: Tuple[int, int] = (12, 8)):
+                             figsize: tuple[int, int] = (12, 8)):
         """
         Create three-dimensional scatter plot showing multivariate outliers.
         
@@ -217,13 +355,46 @@ class OutlierAnalyzer:
             figsize: Figure size for plot
         """
         from mpl_toolkits.mplot3d import Axes3D
-        
-        pass
-                                 
+
+        if any(col not in self.data.columns for col in (x_col, y_col, z_col)):
+            print("Column not found")
+            return None
+        if method not in self.outlier_masks:
+            print(f"Outlier detection '{method}' not found")
+            return None
+
+        mask = self.outlier_masks[method]
+        outlier_rows = mask[[x_col, y_col, z_col]].any(axis=1).to_numpy()
+
+        fig = plt.figure(figsize=figsize)
+        ax = fig.add_subplot(111, projection='3d')
+        ax.scatter(
+            self.data.loc[~outlier_rows, x_col],
+            self.data.loc[~outlier_rows, y_col],
+            self.data.loc[~outlier_rows, z_col],
+            c='steelblue',
+            alpha=0.7,
+            label='Normal'
+        )
+        ax.scatter(
+            self.data.loc[outlier_rows, x_col],
+            self.data.loc[outlier_rows, y_col],
+            self.data.loc[outlier_rows, z_col],
+            c='red',
+            marker='x',
+            s=70,
+            label='Outlier'
+        )
+        ax.set_xlabel(x_col)
+        ax.set_ylabel(y_col)
+        ax.set_zlabel(z_col)
+        ax.set_title(f'3D Outliers ({method})')
+        ax.legend()
+        plt.tight_layout()
         return fig
     
     def visualize_treatment_comparison(self, column: str, 
-                                      figsize: Tuple[int, int] = (15, 10)):
+                                      figsize: tuple[int, int] = (15, 10)):
         """
         Compare distributions before and after different treatments.
         
@@ -272,7 +443,7 @@ class OutlierAnalyzer:
         plt.tight_layout()
         return fig
     
-    def visualize_qq_plots(self, figsize: Tuple[int, int] = (15, 10)):
+    def visualize_qq_plots(self, figsize: tuple[int, int] = (15, 10)):
         """
         Create Q-Q plots to assess normality before and after treatment.
         
