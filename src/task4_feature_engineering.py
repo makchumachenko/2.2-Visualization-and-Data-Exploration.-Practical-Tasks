@@ -20,7 +20,7 @@ from sklearn.feature_selection import (
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.linear_model import LogisticRegression
-from typing import List, Dict, Tuple, Optional, Union
+from typing import Optional, Union
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -50,8 +50,8 @@ class FeatureEngineeringPipeline:
     def create_mathematical_features(
         self,
         df: pd.DataFrame,
-        columns: List[str],
-        operations: List[str] = ['log', 'sqrt', 'square', 'cube']
+        columns: list[str],
+        operations: list[str] = ['log', 'sqrt', 'square', 'cube']
     ) -> pd.DataFrame:
         """
         Create new features using mathematical transformations.
@@ -60,9 +60,9 @@ class FeatureEngineeringPipeline:
         -----------
         df : pd.DataFrame
             Input dataframe
-        columns : List[str]
+        columns : list[str]
             Columns to transform
-        operations : List[str]
+        operations : list[str]
             Mathematical operations to apply
             
         Returns:
@@ -70,13 +70,36 @@ class FeatureEngineeringPipeline:
         pd.DataFrame
             Dataframe with added mathematical features
         """
-        pass
+        accepted_operations = ['log', 'sqrt', 'square', 'cube']
+        for col in columns:
+            if col not in df:
+                return df
+            offset = 0
+            if df[col].min() < 0:
+                offset += abs(df[col].min()) + 1
+            for op in operations:
+                if op not in accepted_operations:
+                    raise ValueError('Not accepted operation')
+                feature_name = col + '_' + op
+
+                if op == 'log':
+                    df[feature_name] = np.log(df[col] + offset)
+                elif op == 'sqrt':
+                    df[feature_name] = np.sqrt(df[col] + offset)
+                elif op == 'square':
+                    df[feature_name] = np.square(df[col])
+                elif op == 'cube':
+                    df[feature_name] = df[col].pow(3)
+
+                self.engineered_features.append(feature_name)
+                self.feature_catalog[feature_name] = f'{op.capitalize()} transformation of {col}'
+        return df
     
     def create_interaction_features(
         self,
         df: pd.DataFrame,
-        column_pairs: List[Tuple[str, str]],
-        operations: List[str] = ['multiply', 'add', 'subtract', 'divide']
+        column_pairs: list[tuple[str, str]],
+        operations: list[str] = ['multiply', 'add', 'subtract', 'divide']
     ) -> pd.DataFrame:
         """
         Create interaction features between pairs of columns.
@@ -85,9 +108,9 @@ class FeatureEngineeringPipeline:
         -----------
         df : pd.DataFrame
             Input dataframe
-        column_pairs : List[Tuple[str, str]]
+        column_pairs : list[tuple[str, str]]
             Pairs of columns to create interactions
-        operations : List[str]
+        operations : list[str]
             Operations to apply
             
         Returns:
@@ -95,14 +118,39 @@ class FeatureEngineeringPipeline:
         pd.DataFrame
             Dataframe with interaction features
         """
-        pass
+        accepted_operations = ['multiply', 'add', 'subtract', 'divide']
+        for col1, col2 in column_pairs:
+            if col1 not in df or col2 not in df:
+                return df
+            for op in operations:
+                if op not in accepted_operations:
+                    raise ValueError('Not accepted operation')
+                feature_name = ''
+                if op == 'multiply':
+                    feature_name = col1 + '_x_' + col2
+                    df[feature_name] = df[col1] * df[col2]
+                elif op == 'add':
+                    feature_name = col1 + '_plus_' + col2
+                    df[feature_name] = df[col1] + df[col2]
+                elif op == 'subtract':
+                    feature_name = col1 + '_minus_' + col2
+                    df[feature_name] = df[col1] - df[col2]
+                elif op == 'divide':
+                    if (df[col2] == 0).any():
+                        raise ValueError('Cannot divide by 0')
+                    feature_name = col1 + '_div_' + col2
+                    df[feature_name] = df[col1] / df[col2]
+
+                self.engineered_features.append(feature_name)
+                self.feature_catalog[feature_name] = f'{op.capitalize()} transformation of {col1} and {col2}'
+        return df
     
     def create_aggregation_features(
         self,
         df: pd.DataFrame,
         group_by: str,
-        agg_columns: List[str],
-        agg_functions: List[str] = ['mean', 'std', 'min', 'max', 'count']
+        agg_columns: list[str],
+        agg_functions: list[str] = ['mean', 'std', 'min', 'max', 'count']
     ) -> pd.DataFrame:
         """
         Create aggregation features based on groupby operations.
@@ -113,9 +161,9 @@ class FeatureEngineeringPipeline:
             Input dataframe
         group_by : str
             Column to group by
-        agg_columns : List[str]
+        agg_columns : list[str]
             Columns to aggregate
-        agg_functions : List[str]
+        agg_functions : list[str]
             Aggregation functions
             
         Returns:
@@ -123,12 +171,26 @@ class FeatureEngineeringPipeline:
         pd.DataFrame
             Dataframe with aggregation features
         """
-        pass
+        accepted_operations = ['mean', 'std', 'min', 'max', 'count']
+
+        if group_by not in df or not set(agg_columns).issubset(df):
+            return df
+
+        for col in agg_columns:
+            for op in agg_functions:
+                if op not in accepted_operations:
+                    raise ValueError('Not accepted operation')
+                feature_name = 'value_' + op + '_by_group'
+                df[feature_name] = df.groupby(group_by)[col].transform(op)
+
+            self.engineered_features.append(feature_name)
+            self.feature_catalog[feature_name] = f'{op.capitalize()} aggregation of {group_by} over {agg_columns}'
+        return df
     
     def encode_onehot(
         self,
         df: pd.DataFrame,
-        columns: List[str],
+        columns: list[str],
         drop_first: bool = False,
         max_categories: int = 10
     ) -> pd.DataFrame:
@@ -139,7 +201,7 @@ class FeatureEngineeringPipeline:
         -----------
         df : pd.DataFrame
             Input dataframe
-        columns : List[str]
+        columns : list[str]
             Categorical columns to encode
         drop_first : bool
             Whether to drop first category to avoid multicollinearity
@@ -151,12 +213,44 @@ class FeatureEngineeringPipeline:
         pd.DataFrame
             Dataframe with one-hot encoded features
         """
-        pass
+        if not set(columns).issubset(df.columns):
+            return df
+
+        encoded_df = df.copy()
+
+        encoder = OneHotEncoder(
+            drop='first' if drop_first else None,
+            max_categories=max_categories,
+            sparse_output=False
+        )
+
+        encoded_values = encoder.fit_transform(df[columns])
+
+        dummy_df = pd.DataFrame(
+            encoded_values,
+            columns=encoder.get_feature_names_out(columns),
+            index=df.index
+        )
+
+        encoded_df = pd.concat(
+            [df.drop(columns=columns), dummy_df],
+            axis=1
+        )
+
+        for feature_name in dummy_df.columns:
+            if feature_name not in self.engineered_features:
+                self.engineered_features.append(feature_name)
+
+            self.feature_catalog[feature_name] = (
+                f'One-hot encoded category: {feature_name}'
+            )
+
+        return encoded_df
     
     def encode_label(
         self,
         df: pd.DataFrame,
-        columns: List[str]
+        columns: list[str]
     ) -> pd.DataFrame:
         """
         Apply label encoding to categorical columns.
@@ -165,7 +259,7 @@ class FeatureEngineeringPipeline:
         -----------
         df : pd.DataFrame
             Input dataframe
-        columns : List[str]
+        columns : list[str]
             Categorical columns to encode
             
         Returns:
@@ -178,7 +272,7 @@ class FeatureEngineeringPipeline:
     def encode_target(
         self,
         df: pd.DataFrame,
-        columns: List[str],
+        columns: list[str],
         target: str,
         smoothing: float = 0.0
     ) -> pd.DataFrame:
@@ -189,7 +283,7 @@ class FeatureEngineeringPipeline:
         -----------
         df : pd.DataFrame
             Input dataframe
-        columns : List[str]
+        columns : list[str]
             Categorical columns to encode
         target : str
             Target column name
@@ -206,7 +300,7 @@ class FeatureEngineeringPipeline:
     def encode_frequency(
         self,
         df: pd.DataFrame,
-        columns: List[str]
+        columns: list[str]
     ) -> pd.DataFrame:
         """
         Apply frequency encoding to categorical columns.
@@ -215,7 +309,7 @@ class FeatureEngineeringPipeline:
         -----------
         df : pd.DataFrame
             Input dataframe
-        columns : List[str]
+        columns : list[str]
             Categorical columns to encode
             
         Returns:
@@ -228,7 +322,7 @@ class FeatureEngineeringPipeline:
     def create_polynomial_features(
         self,
         df: pd.DataFrame,
-        columns: List[str],
+        columns: list[str],
         degree: int = 2,
         include_bias: bool = False
     ) -> pd.DataFrame:
@@ -239,7 +333,7 @@ class FeatureEngineeringPipeline:
         -----------
         df : pd.DataFrame
             Input dataframe
-        columns : List[str]
+        columns : list[str]
             Columns to create polynomial features from
         degree : int
             Polynomial degree
@@ -259,7 +353,7 @@ class FeatureEngineeringPipeline:
         y: pd.Series,
         k: int = 10,
         score_func=f_classif
-    ) -> Tuple[List[str], np.ndarray]:
+    ) -> tuple[list[str], np.ndarray]:
         """
         Select top k features using univariate statistical tests.
         
@@ -276,7 +370,7 @@ class FeatureEngineeringPipeline:
             
         Returns:
         --------
-        Tuple[List[str], np.ndarray]
+        tuple[list[str], np.ndarray]
             Selected feature names and their scores
         """
         selector = SelectKBest(score_func=score_func, k=min(k, X.shape[1]))
@@ -299,7 +393,7 @@ class FeatureEngineeringPipeline:
         y: pd.Series,
         n_features: int = 10,
         step: int = 1
-    ) -> List[str]:
+    ) -> list[str]:
         """
         Select features using Recursive Feature Elimination.
         
@@ -316,7 +410,7 @@ class FeatureEngineeringPipeline:
             
         Returns:
         --------
-        List[str]
+        list[str]
             Selected feature names
         """
         estimator = LogisticRegression(
@@ -347,7 +441,7 @@ class FeatureEngineeringPipeline:
         X: pd.DataFrame,
         y: pd.Series,
         n_features: int = 10
-    ) -> Tuple[List[str], np.ndarray]:
+    ) -> tuple[list[str], np.ndarray]:
         """
         Select features using tree-based feature importance.
         
@@ -362,7 +456,7 @@ class FeatureEngineeringPipeline:
             
         Returns:
         --------
-        Tuple[List[str], np.ndarray]
+        tuple[list[str], np.ndarray]
             Selected feature names and their importance scores
         """
         rf = RandomForestClassifier(
@@ -408,7 +502,7 @@ class FeatureEngineeringPipeline:
         X_engineered: pd.DataFrame,
         y: pd.Series,
         cv: int = 5
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """
         Evaluate the impact of feature engineering on model performance.
         
@@ -425,7 +519,7 @@ class FeatureEngineeringPipeline:
             
         Returns:
         --------
-        Dict[str, float]
+        dict[str, float]
             Performance scores for original and engineered features
         """
         model = LogisticRegression(
@@ -458,7 +552,7 @@ def create_sample_dataset(
     n_features: int = 5,
     n_categorical: int = 2,
     random_state: int = 42
-) -> Tuple[pd.DataFrame, pd.Series]:
+) -> tuple[pd.DataFrame, pd.Series]:
     """
     Create a sample dataset for feature engineering demonstration.
     
@@ -475,7 +569,7 @@ def create_sample_dataset(
         
     Returns:
     --------
-    Tuple[pd.DataFrame, pd.Series]
+    tuple[pd.DataFrame, pd.Series]
         Feature dataframe and target series
     """
     np.random.seed(random_state)
@@ -520,7 +614,7 @@ def create_sample_dataset(
 
 
 def visualize_feature_importance(
-    importance_scores: Dict[str, float],
+    importance_scores: dict[str, float],
     top_n: int = 15,
     title: str = 'Feature Importance',
     output_path: str = 'feature_importance.png'
@@ -530,7 +624,7 @@ def visualize_feature_importance(
     
     Parameters:
     -----------
-    importance_scores : Dict[str, float]
+    importance_scores : dict[str, float]
         Feature names and their importance scores
     top_n : int
         Number of top features to display
@@ -564,7 +658,7 @@ def visualize_feature_importance(
 
 def visualize_feature_correlations(
     df: pd.DataFrame,
-    features: List[str],
+    features: list[str],
     title: str = 'Feature Correlation Matrix',
     output_path: str = 'feature_correlations.png'
 ):
@@ -575,7 +669,7 @@ def visualize_feature_correlations(
     -----------
     df : pd.DataFrame
         Dataframe with features
-    features : List[str]
+    features : list[str]
         Features to include in correlation matrix
     title : str
         Plot title
@@ -613,7 +707,7 @@ def visualize_feature_correlations(
 
 def visualize_pairplot(
     df: pd.DataFrame,
-    features: List[str],
+    features: list[str],
     target: Optional[pd.Series] = None,
     output_path: str = 'feature_pairplot.png'
 ):
@@ -624,7 +718,7 @@ def visualize_pairplot(
     -----------
     df : pd.DataFrame
         Dataframe with features
-    features : List[str]
+    features : list[str]
         Features to include in pair plot
     target : Optional[pd.Series]
         Target variable for coloring
@@ -725,7 +819,7 @@ def visualize_polynomial_impact(
 
 
 def visualize_encoding_comparison(
-    performance_dict: Dict[str, float],
+    performance_dict: dict[str, float],
     output_path: str = 'encoding_comparison.png'
 ):
     """
@@ -733,7 +827,7 @@ def visualize_encoding_comparison(
     
     Parameters:
     -----------
-    performance_dict : Dict[str, float]
+    performance_dict : dict[str, float]
         Encoding method names and performance scores
     output_path : str
         Path to save the plot
@@ -770,8 +864,8 @@ def visualize_encoding_comparison(
 
 
 def visualize_feature_network(
-    interaction_pairs: List[Tuple[str, str]],
-    importance_scores: Dict[str, float],
+    interaction_pairs: list[tuple[str, str]],
+    importance_scores: dict[str, float],
     output_path: str = 'feature_network.png'
 ):
     """
@@ -779,9 +873,9 @@ def visualize_feature_network(
     
     Parameters:
     -----------
-    interaction_pairs : List[Tuple[str, str]]
+    interaction_pairs : list[tuple[str, str]]
         Pairs of interacting features
-    importance_scores : Dict[str, float]
+    importance_scores : dict[str, float]
         Importance scores for features
     output_path : str
         Path to save the plot
